@@ -1,0 +1,226 @@
+####################
+##############
+
+#!/bin/bash
+#SBATCH -A pccr                # Allocation name
+#SBATCH -t 1:00:00             # Time allocation
+#SBATCH -N 1                   # Number of nodes
+#SBATCH -n 4                   # Number of cores
+#SBATCH --job-name=consensus_peaks
+#SBATCH --mail-type=FAIL,BEGIN,END
+#SBATCH --error=%x-%J-%u.err
+#SBATCH --output=%x-%J-%u.out
+
+# Load bedtools module
+module --force purge
+module load bedtools
+
+# Define paths
+PEAKS_DIR=/depot/edykhui/data/ming/atac_seq/rcc4_peaks_shift-100
+OUTPUT_DIR=/depot/edykhui/data/ming/atac_seq/consensus_peaks
+
+# Create output directory if it does not exist
+mkdir -p $OUTPUT_DIR
+
+# Combine all peak files into one file
+cat $PEAKS_DIR/*.narrowPeak > $OUTPUT_DIR/all_peaks_combined.bed
+
+# Sort the combined peak file
+bedtools sort -i $OUTPUT_DIR/all_peaks_combined.bed > $OUTPUT_DIR/all_peaks_sorted.bed
+
+# Merge overlapping peaks to create the consensus peak list
+bedtools merge -i $OUTPUT_DIR/all_peaks_sorted.bed > $OUTPUT_DIR/consensus_peaks.bed
+
+# Verify creation of the consensus peak file
+if [[ -f $OUTPUT_DIR/consensus_peaks.bed ]]; then
+    echo "Consensus peak file created: $OUTPUT_DIR/consensus_peaks.bed"
+else
+    echo "Consensus peak file NOT created."
+fi
+
+##########################
+#########################Calculate Coverage for Consensus Peaks:
+
+Use the consensus peak list to calculate coverage for each sample.
+Summarize Coverage Values:
+
+Summarize the coverage values across replicates.
+Perform Differential Analysis:
+
+Use a statistical method to compare the coverage values between conditions and the control.
+Step 1: Calculate Coverage for Consensus Peaks
+Use computeMatrix from deeptools to calculate the coverage for each peak in the consensus peak list for each sample.
+
+SLURM Script for Coverage Calculation
+####################################
+#!/bin/bash
+#SBATCH -A pccr                # Allocation name
+#SBATCH -t 2:00:00             # Time allocation
+#SBATCH -N 1                   # Number of nodes
+#SBATCH -n 32                  # Number of cores
+#SBATCH --job-name=compute_matrix
+#SBATCH --mail-type=FAIL,BEGIN,END
+#SBATCH --error=%x-%J-%u.err
+#SBATCH --output=%x-%J-%u.out
+
+module --force purge
+module load biocontainers
+module load deeptools
+
+# Define paths
+BIGWIG_DIR=/depot/edykhui/data/ming/atac_seq/bigwig_files_RCC4
+PEAKS_FILE=/depot/edykhui/data/ming/atac_seq/consensus_peaks/consensus_peaks.bed
+OUTPUT_DIR=/depot/edykhui/data/ming/atac_seq/coverage_results
+
+# Create output directory if it does not exist
+mkdir -p $OUTPUT_DIR
+
+# Function to compute matrix for a given condition and replicate
+compute_matrix() {
+    local condition=$1
+    local replicate=$2
+
+    local bw_file=$BIGWIG_DIR/A_RCC4_${condition}_${replicate}.bw
+    local matrix_file=$OUTPUT_DIR/matrix_${condition}_${replicate}.gz
+
+    if [[ -f $bw_file && -f $PEAKS_FILE ]]; then
+        echo "Processing: $bw_file and $PEAKS_FILE"
+
+        # Compute the matrix based on coordinates
+        computeMatrix scale-regions \
+            -S $bw_file \
+            -R $PEAKS_FILE \
+            --regionBodyLength 2000 \
+            --skipZeros \
+            -o $matrix_file
+
+        # Verify matrix file creation
+        if [[ -f $matrix_file ]]; then
+            echo "Matrix file created: $matrix_file"
+        else
+            echo "Matrix file NOT created: $matrix_file"
+        fi
+    else
+        echo "File $bw_file or $PEAKS_FILE does not exist"
+    fi
+}
+
+# Define conditions and replicates
+conditions=("PB1_VHL" "PB1" "VHL")
+replicates=("1" "2" "3")
+
+# Process each combination of condition and replicate
+for condition in "${conditions[@]}"; do
+    for replicate in "${replicates[@]}"; do
+        compute_matrix $condition $replicate
+    done
+done#!/bin/bash
+#SBATCH -A pccr                # Allocation name
+#SBATCH -t 2:00:00             # Time allocation
+#SBATCH -N 1                   # Number of nodes
+#SBATCH -n 32                  # Number of cores
+#SBATCH --job-name=compute_matrix
+#SBATCH --mail-type=FAIL,BEGIN,END
+#SBATCH --error=%x-%J-%u.err
+#SBATCH --output=%x-%J-%u.out
+
+module --force purge
+module load biocontainers
+module load deeptools
+
+# Define paths
+BIGWIG_DIR=/depot/edykhui/data/ming/atac_seq/bigwig_files_RCC4
+PEAKS_FILE=/depot/edykhui/data/ming/atac_seq/consensus_peaks/consensus_peaks.bed
+OUTPUT_DIR=/depot/edykhui/data/ming/atac_seq/coverage_results
+
+# Create output directory if it does not exist
+mkdir -p $OUTPUT_DIR
+
+# Function to compute matrix for a given condition and replicate
+compute_matrix() {
+    local condition=$1
+    local replicate=$2
+
+    local bw_file=$BIGWIG_DIR/A_RCC4_${condition}_${replicate}.bw
+    local matrix_file=$OUTPUT_DIR/matrix_${condition}_${replicate}.gz
+
+    if [[ -f $bw_file && -f $PEAKS_FILE ]]; then
+        echo "Processing: $bw_file and $PEAKS_FILE"
+
+        # Compute the matrix based on coordinates
+        computeMatrix scale-regions \
+            -S $bw_file \
+            -R $PEAKS_FILE \
+            --regionBodyLength 2000 \
+            --skipZeros \
+            -o $matrix_file
+
+        # Verify matrix file creation
+        if [[ -f $matrix_file ]]; then
+            echo "Matrix file created: $matrix_file"
+        else
+            echo "Matrix file NOT created: $matrix_file"
+        fi
+    else
+        echo "File $bw_file or $PEAKS_FILE does not exist"
+    fi
+}
+
+# Define conditions and replicates
+conditions=("PB1_VHL" "PB1" "VHL" "Empty")
+replicates=("1" "2" "3")
+
+# Process each combination of condition and replicate
+for condition in "${conditions[@]}"; do
+    for replicate in "${replicates[@]}"; do
+        compute_matrix $condition $replicate
+    done
+done
+
+###############
+
+#!/bin/bash
+
+# Define paths
+COVERAGE_DIR=/depot/edykhui/data/ming/atac_seq/coverage_results
+OUTPUT_DIR=/depot/edykhui/data/ming/atac_seq
+COUNT_MATRIX_FILE=$OUTPUT_DIR/count_matrix.csv
+
+# Create the header for the count matrix
+echo "PeakID,PB1_VHL_1,PB1_VHL_2,PB1_VHL_3,PB1_1,PB1_2,PB1_3,VHL_1,VHL_2,VHL_3,Empty_1,Empty_2,Empty_3" > $COUNT_MATRIX_FILE
+
+# Initialize an empty array to hold the AUC values for each peak across all samples
+declare -A auc_values
+
+# Define conditions and replicates
+conditions=("PB1_VHL" "PB1" "VHL" "Empty")
+replicates=("1" "2" "3")
+
+# Loop through each combination of condition and replicate
+for condition in "${conditions[@]}"; do
+    for replicate in "${replicates[@]}"; do
+        profile_data_file=$COVERAGE_DIR/coverage_profile_data_${condition}_${replicate}.txt
+
+        if [[ -f $profile_data_file ]]; then
+            echo "Processing: $profile_data_file"
+
+            # Read coverage values from the profile data file
+            awk -v condition=$condition -v replicate=$replicate '{
+                auc_values[NR][condition"_"replicate] = $2
+            }' $profile_data_file
+        else
+            echo "Profile data file $profile_data_file does not exist"
+        fi
+    done
+done
+
+# Write the AUC values into the count matrix file
+for peak_id in "${!auc_values[@]}"; do
+    echo -n "$peak_id" >> $COUNT_MATRIX_FILE
+    for condition in "${conditions[@]}"; do
+        for replicate in "${replicates[@]}"; do
+            echo -n ",${auc_values[$peak_id][${condition}_${replicate}]}" >> $COUNT_MATRIX_FILE
+        done
+    done
+    echo "" >> $COUNT_MATRIX_FILE
+done
